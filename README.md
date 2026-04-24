@@ -2,6 +2,8 @@
 
 <div align="center">
     <i>A poker library, server, client, and TUI.</i>
+    <br>
+    <i>Fork of <a href="https://github.com/theOGognf/private_poker">theOGognf/private_poker</a></i>
 </div>
 
 # 🃟 pri♦ate_p♡ker 🃏︎
