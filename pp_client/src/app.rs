@@ -64,6 +64,8 @@ vote reset
         Vote to reset game money. Entering without a value defaults to voting to
         reset everyone's money. Entering USER will vote to reset that specific
         user's money.
+>MESSAGE
+        Send a chat message visible to all connected players. Example: >hello there
 ";
 const INVALID_RAISE_MESSAGE: &str = "invalid raise amount";
 const MAX_LOG_RECORDS: usize = 1024;
@@ -113,6 +115,7 @@ fn make_user_row(username: &Username, user: &User) -> Row<'static> {
 enum RecordKind {
     Ack,
     Alert,
+    Chat,
     Error,
     Game,
     You,
@@ -142,6 +145,7 @@ impl From<Record> for ListItem<'_> {
         let repr = match val.kind {
             RecordKind::Ack => "ACK".light_blue(),
             RecordKind::Alert => "ALERT".light_magenta(),
+            RecordKind::Chat => "CHAT".light_cyan(),
             RecordKind::Error => "ERROR".light_red(),
             RecordKind::Game => "GAME".light_yellow(),
             RecordKind::You => "YOU".light_green(),
@@ -231,30 +235,44 @@ impl App {
             "spectate" => Ok(UserCommand::ChangeState(UserState::Spectate)),
             "start" => Ok(UserCommand::StartGame),
             other => {
-                let other: Vec<&str> = other.split_ascii_whitespace().collect();
-                match other.first() {
-                    Some(&"raise") => {
-                        let result = match other.get(1) {
-                            // Raise with a specific amount.
-                            Some(value) => match value.parse::<Usd>() {
-                                Ok(amount) => Ok(Action::Raise(Some(amount))),
-                                Err(_) => Err(INVALID_RAISE_MESSAGE.to_string()),
-                            },
-                            None => Ok(Action::Raise(None)),
-                        };
-                        result.map(UserCommand::TakeAction)
+                // Chat: any input starting with '>' is a chat message.
+                if let Some(msg) = other.strip_prefix('>') {
+                    let msg = msg.trim().to_string();
+                    if msg.is_empty() {
+                        Err("chat message cannot be empty".to_string())
+                    } else {
+                        Ok(UserCommand::Chat(msg))
                     }
-                    Some(&"vote") => match (other.get(1), other.get(2)) {
-                        (Some(&"kick"), Some(username)) => {
-                            Ok(UserCommand::CastVote(Vote::Kick(Username::new(username))))
+                } else {
+                    let other: Vec<&str> = other.split_ascii_whitespace().collect();
+                    match other.first() {
+                        Some(&"raise") => {
+                            let result = match other.get(1) {
+                                // Raise with a specific amount.
+                                Some(value) => match value.parse::<Usd>() {
+                                    Ok(amount) => Ok(Action::Raise(Some(amount))),
+                                    Err(_) => Err(INVALID_RAISE_MESSAGE.to_string()),
+                                },
+                                None => Ok(Action::Raise(None)),
+                            };
+                            result.map(UserCommand::TakeAction)
                         }
-                        (Some(&"reset"), Some(username)) => Ok(UserCommand::CastVote(Vote::Reset(
-                            Some(Username::new(username)),
-                        ))),
-                        (Some(&"reset"), None) => Ok(UserCommand::CastVote(Vote::Reset(None))),
+                        Some(&"vote") => match (other.get(1), other.get(2)) {
+                            (Some(&"kick"), Some(username)) => {
+                                Ok(UserCommand::CastVote(Vote::Kick(Username::new(username))))
+                            }
+                            (Some(&"reset"), Some(username)) => {
+                                Ok(UserCommand::CastVote(Vote::Reset(Some(Username::new(
+                                    username,
+                                )))))
+                            }
+                            (Some(&"reset"), None) => {
+                                Ok(UserCommand::CastVote(Vote::Reset(None)))
+                            }
+                            _ => Err(UNRECOGNIZED_COMMAND_MESSAGE.to_string()),
+                        },
                         _ => Err(UNRECOGNIZED_COMMAND_MESSAGE.to_string()),
-                    },
-                    _ => Err(UNRECOGNIZED_COMMAND_MESSAGE.to_string()),
+                    }
                 }
             }
         };
@@ -495,7 +513,14 @@ impl App {
                                 _ => {}
                             }
                         }
-                        Some(Record::new(RecordKind::Ack, msg.to_string()))
+                        // Chat messages get their own record kind so they stand out visually.
+                        match msg.command {
+                            UserCommand::Chat(ref text) => Some(Record::new(
+                                RecordKind::Chat,
+                                format!("({}): {}", msg.username, text),
+                            )),
+                            _ => Some(Record::new(RecordKind::Ack, msg.to_string())),
+                        }
                     }
                     ServerMessage::ClientError(error) => {
                         Some(Record::new(RecordKind::Error, error.to_string()))

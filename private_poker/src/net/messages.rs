@@ -60,6 +60,8 @@ pub enum UserCommand {
     TakeAction(Action),
     /// User wants to cast a vote.
     CastVote(Vote),
+    /// User wants to send a chat message to all players.
+    Chat(String),
 }
 
 impl fmt::Display for UserCommand {
@@ -72,6 +74,7 @@ impl fmt::Display for UserCommand {
             Self::StartGame => "started the game",
             Self::TakeAction(action) => &action.to_string(),
             Self::CastVote(vote) => &format!("voted to {vote}"),
+            Self::Chat(msg) => msg.as_str(),
         };
         write!(f, "{repr}")
     }

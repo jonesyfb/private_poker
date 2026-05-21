@@ -853,6 +853,9 @@ pub fn run(addr: SocketAddr, config: PokerConfig) -> Result<(), Error> {
                                     }
                                 })
                             }),
+                        // Chat messages require no game state change; the Ack
+                        // broadcast carries the message text to all clients.
+                        UserCommand::Chat(_) => Ok(()),
                     };
 
                     // Get the result from a client's command. If their command
