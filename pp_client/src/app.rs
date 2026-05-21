@@ -15,7 +15,7 @@ use ratatui::{
     DefaultTerminal, Frame,
     crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers},
     layout::{Alignment, Constraint, Flex, Layout, Margin, Position},
-    style::{Style, Stylize},
+    style::{Color, Style, Stylize},
     symbols::scrollbar,
     text::{Line, Span, Text},
     widgets::{
@@ -72,30 +72,75 @@ const MAX_LOG_RECORDS: usize = 1024;
 const POLL_TIMEOUT: Duration = Duration::from_millis(100);
 const UNRECOGNIZED_COMMAND_MESSAGE: &str = "unrecognized command";
 
-fn make_board_spans(view: &GameView) -> Vec<Span<'_>> {
-    (!view.board.is_empty())
-        .then(|| {
-            std::iter::once(" board: ".into()).chain(
-                view.board
-                    .iter()
-                    .flat_map(|card| vec![make_card_span(card), "  ".into()]),
-            )
-        })
-        .into_iter()
-        .flatten()
-        .collect()
+fn suit_style(suit: &Suit) -> Style {
+    match suit {
+        Suit::Club => Style::default().fg(Color::LightGreen),
+        Suit::Diamond => Style::default().fg(Color::LightBlue),
+        Suit::Heart => Style::default().fg(Color::LightRed),
+        Suit::Spade => Style::default(),
+        Suit::Wild => Style::default().fg(Color::LightMagenta),
+    }
 }
 
-fn make_card_span(card: &Card) -> Span<'_> {
-    let Card(.., suit) = card;
-    let repr = card.to_string();
-    match suit {
-        Suit::Club => repr.light_green(),
-        Suit::Diamond => repr.light_blue(),
-        Suit::Heart => repr.light_red(),
-        Suit::Spade => repr.into(),
-        Suit::Wild => repr.light_magenta(),
+fn card_spans(card: &Card) -> [Span<'static>; 3] {
+    let Card(value, suit) = card;
+    let rank = match value {
+        1 | 14 => "A".to_string(),
+        11 => "J".to_string(),
+        12 => "Q".to_string(),
+        13 => "K".to_string(),
+        v => v.to_string(),
+    };
+    let suit_sym = suit.to_string();
+    let mid = if rank.len() == 2 {
+        format!("│{}{}│", rank, suit_sym)
+    } else {
+        format!("│{} {}│", rank, suit_sym)
+    };
+    let style = suit_style(suit);
+    [
+        Span::styled("┌───┐", style),
+        Span::styled(mid, style),
+        Span::styled("└───┘", style),
+    ]
+}
+
+fn card_text(card: &Card) -> Text<'static> {
+    let [top, mid, bot] = card_spans(card);
+    Text::from(vec![Line::from(top), Line::from(mid), Line::from(bot)])
+}
+
+fn make_board_text(view: &GameView) -> Text<'static> {
+    if view.board.is_empty() {
+        return Text::default();
     }
+    let mut tops: Vec<Span<'static>> = vec![Span::raw("  ")];
+    let mut mids: Vec<Span<'static>> = vec![Span::raw("  ")];
+    let mut bots: Vec<Span<'static>> = vec![Span::raw("  ")];
+    for (i, card) in view.board.iter().enumerate() {
+        if i > 0 {
+            tops.push(Span::raw("  "));
+            mids.push(Span::raw("  "));
+            bots.push(Span::raw("  "));
+        }
+        let [top, mid, bot] = card_spans(card);
+        tops.push(top);
+        mids.push(mid);
+        bots.push(bot);
+    }
+    Text::from(vec![
+        Line::from(tops),
+        Line::from(mids),
+        Line::from(bots),
+    ])
+}
+
+fn vcenter(content: impl Into<String>) -> Text<'static> {
+    Text::from(vec![
+        Line::default(),
+        Line::from(content.into()),
+        Line::default(),
+    ])
 }
 
 fn make_user_row(username: &Username, user: &User) -> Row<'static> {
@@ -567,9 +612,15 @@ impl App {
         let [view_area, log_area] =
             Layout::vertical([Constraint::Percentage(55), Constraint::Percentage(45)])
                 .areas(top_area);
-        let [lobby_area, table_area] =
+        let [lobby_area, table_pane] =
             Layout::horizontal([Constraint::Percentage(40), Constraint::Percentage(60)])
                 .areas(view_area);
+        let board_height = if view.board.is_empty() { 0 } else { 3 };
+        let [board_area, table_area] = Layout::vertical([
+            Constraint::Length(board_height),
+            Constraint::Fill(1),
+        ])
+        .areas(table_pane);
         let [spectator_area, waitlister_area] =
             Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)])
                 .areas(lobby_area);
@@ -634,21 +685,20 @@ impl App {
 
                 // This is the final row representation for the table entry.
                 let mut row = vec![
-                    Cell::new(Text::from(move_repr).alignment(Alignment::Center)),
-                    Cell::new(Text::from(button_repr).alignment(Alignment::Left)),
-                    Cell::new(Text::from(username_repr).alignment(Alignment::Left)),
-                    Cell::new(Text::from(money_repr).alignment(Alignment::Right)),
-                    Cell::new(Text::from(state_repr).alignment(Alignment::Center)),
+                    Cell::new(vcenter(move_repr).alignment(Alignment::Center)),
+                    Cell::new(vcenter(button_repr).alignment(Alignment::Left)),
+                    Cell::new(vcenter(username_repr).alignment(Alignment::Left)),
+                    Cell::new(vcenter(money_repr).alignment(Alignment::Right)),
+                    Cell::new(vcenter(state_repr).alignment(Alignment::Center)),
                 ];
 
-                // Player cards styled according to suit.
+                // Player cards as 3-line box-art blocks.
                 for card_idx in 0..2 {
-                    let card_repr = player
-                        .cards
-                        .get(card_idx)
-                        .map_or_else(|| "".into(), make_card_span);
-                    let card_cell = Cell::new(Text::from(card_repr).alignment(Alignment::Right));
-                    row.push(card_cell);
+                    let cell = match player.cards.get(card_idx) {
+                        Some(card) => Cell::new(card_text(card)),
+                        None => Cell::new(Text::default()),
+                    };
+                    row.push(cell);
                 }
 
                 // Player's highest subhand displayed.
@@ -661,10 +711,10 @@ impl App {
                     hand.first()
                         .map_or_else(String::new, |subhand| format!("({})", subhand.rank))
                 };
-                let hand_cell = Cell::new(Text::from(hand_repr).alignment(Alignment::Right));
+                let hand_cell = Cell::new(vcenter(hand_repr).alignment(Alignment::Right));
                 row.push(hand_cell);
 
-                let mut row = Row::new(row);
+                let mut row = Row::new(row).height(3);
                 if self.username == player.user.name {
                     row = row.bold().white();
                 }
@@ -685,11 +735,6 @@ impl App {
             block::Block::bordered()
                 .padding(Padding::uniform(1))
                 .title(
-                    block::Title::from(make_board_spans(view))
-                        .position(block::Position::Top)
-                        .alignment(Alignment::Left),
-                )
-                .title(
                     block::Title::from(format!(" blinds: {}  ", view.blinds))
                         .position(block::Position::Bottom)
                         .alignment(Alignment::Right),
@@ -700,6 +745,10 @@ impl App {
                         .alignment(Alignment::Left),
                 ),
         );
+
+        if !view.board.is_empty() {
+            frame.render_widget(Paragraph::new(make_board_text(view)), board_area);
+        }
         frame.render_widget(table, table_area);
 
         // Render log window.

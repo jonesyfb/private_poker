@@ -25,11 +25,11 @@ pub enum Suit {
 impl fmt::Display for Suit {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let repr = match self {
-            Self::Club => "c",
-            Self::Spade => "s",
-            Self::Diamond => "d",
-            Self::Heart => "h",
-            Self::Wild => "w",
+            Self::Club => "♣",
+            Self::Spade => "♠",
+            Self::Diamond => "♦",
+            Self::Heart => "♥",
+            Self::Wild => "★",
         };
         write!(f, "{repr}")
     }
@@ -46,14 +46,13 @@ pub struct Card(pub Value, pub Suit);
 impl fmt::Display for Card {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let value = match self.0 {
-            1 | 14 => "A",
-            11 => "J",
-            12 => "Q",
-            13 => "K",
-            v => &v.to_string(),
+            1 | 14 => "A".to_string(),
+            11 => "J".to_string(),
+            12 => "Q".to_string(),
+            13 => "K".to_string(),
+            v => v.to_string(),
         };
-        let repr = format!("{value}/{}", self.1);
-        write!(f, "{repr:>4}")
+        write!(f, "{value}{}", self.1)
     }
 }
 
