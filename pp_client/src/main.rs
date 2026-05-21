@@ -8,7 +8,7 @@
 
 use std::net::{SocketAddr, ToSocketAddrs};
 
-use anyhow::{Error, anyhow};
+use anyhow::{Context, Error};
 
 use pico_args::Arguments;
 use private_poker::{Client, entities::Username};
@@ -20,7 +20,7 @@ const HELP: &str = "\
 Connect to a private poker server over TCP
 
 USAGE:
-  pp_client [OPTIONS] USERNAME
+  pp_client USERNAME [OPTIONS]
 
 OPTIONS:
   --connect HOST:PORT   Server address (hostname or IP)  [default: 127.0.0.1:6969]
@@ -34,12 +34,6 @@ struct Args {
     username: Username,
 }
 
-fn resolve(host: &str) -> Result<SocketAddr, Error> {
-    host.to_socket_addrs()?
-        .next()
-        .ok_or_else(|| anyhow!("could not resolve address: {host}"))
-}
-
 fn main() -> Result<(), Error> {
     let mut pargs = Arguments::from_env();
 
@@ -49,12 +43,13 @@ fn main() -> Result<(), Error> {
         std::process::exit(0);
     }
 
-    let connect: String = pargs
-        .value_from_str("--connect")
-        .unwrap_or_else(|_| "127.0.0.1:6969".to_string());
-
     let args = Args {
-        addr: resolve(&connect)?,
+        addr: pargs
+            .value_from_str("--connect")
+            .unwrap_or("127.0.0.1:6969".to_string())
+            .to_socket_addrs()?
+            .next()
+            .context("failed to connect to server")?,
         username: pargs.free_from_str().unwrap_or(whoami::username()).into(),
     };
 
@@ -65,7 +60,7 @@ fn main() -> Result<(), Error> {
     let (client, view) = Client::connect(args.username, &args.addr)?;
     let Client { username, stream } = client;
     let terminal = ratatui::init();
-    let app_result = App::new(connect, username).run(stream, view, terminal);
+    let app_result = App::new(args.addr, username).run(stream, view, terminal);
     ratatui::restore();
     app_result
 }
